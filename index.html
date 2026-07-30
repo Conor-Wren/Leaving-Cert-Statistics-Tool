@@ -143,11 +143,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   .badge.up { background: #e2f3e8; color: #1f7a3f; }
   .badge.down { background: #fbe7e7; color: #a13636; }
   .badge.flat { background: #eeece3; color: var(--muted); }
+  tr.clickable-row { cursor: pointer; }
+  tr.clickable-row:hover { background: #f1f7f3; }
+  tr.clickable-row.active { background: #e2f3e8; }
   .narrative { font-size: 12.5px; color: var(--ink); background: #fafaf6; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin: 10px 0 4px; }
-  .subject-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
-  @media (max-width: 900px) { .subject-charts { grid-template-columns: 1fr; } }
+  .subject-charts { display: flex; flex-direction: column; gap: 28px; margin-top: 18px; }
   .subject-charts canvas { max-height: 380px; }
-  .subject-charts > div { min-height: 340px; }
+  .subject-charts > div { min-height: 360px; padding-bottom: 8px; }
   .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
   canvas { max-height: 320px; }
@@ -214,7 +216,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <input type="file" id="file-archive" accept=".json">
         <div class="filename" id="fname-archive"></div>
       </div>
+      <div class="upload-box" id="box-names">
+        <div class="label">Student Names</div>
+        <div class="hint">Optional, kept separate — CSV with Student Number + Name</div>
+        <label class="btn btn-choose" for="file-names">Choose file</label>
+        <input type="file" id="file-names" accept=".csv">
+        <div class="filename" id="fname-names"></div>
+      </div>
     </div>
+    <p class="footer-note" id="namesFormatNote">Student Names file: two columns — a student/candidate/exam number column and a name column (any common header wording works, e.g. "Candidate Number, Name"). This never gets merged into the main analysis — it only powers a separate, clearly-labelled export for people who need real names.</p>
     <div style="margin-top:18px;" class="actions-row">
       <span>Exam year:</span>
       <input type="text" id="examYear" value="2025" style="width:70px;padding:8px;border:1px solid var(--line);border-radius:4px;">
@@ -230,9 +240,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div class="actions-row">
           <button class="btn btn-secondary" id="downloadArchiveBtn">Download updated archive</button>
           <button class="btn btn-primary" id="exportExcelBtn">Export to Excel</button>
+          <button class="btn btn-primary" id="exportNamedBtn" style="display:none;background:var(--red);">Export Named Excel (Confidential)</button>
         </div>
       </div>
       <p class="footer-note">The exported workbook contains the full Mastersheet, every subject sheet, Subject Comparison, and Dashboard data — with live formulas and native Excel charts for every subject, matching what's shown here.</p>
+      <p class="footer-note" id="namedExportNote" style="display:none;color:var(--red);">A names file is loaded. "Export to Excel" stays fully anonymous as always — use "Export Named Excel" separately for a second, clearly-labelled file with real names included, and handle that file per your school's data protection policy.</p>
     </div>
 
     <div class="tabs">
@@ -245,7 +257,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="kpi-grid" id="kpiGrid"></div>
       <div class="kpi-grid" id="levelGrid" style="margin-top:-6px;"></div>
       <div class="chart-grid">
-        <div class="panel"><h2>Top Performing Students</h2><div id="topStudents"></div></div>
+        <div class="panel"><h2>Students by Points Band</h2><p class="footer-note" style="margin:0 0 8px;">Click a band to see the student numbers in it.</p><div id="pointsBandTable"></div><div id="pointsBandDetail"></div></div>
         <div class="panel"><h2>CAO Points Distribution</h2><canvas id="pointsChart"></canvas></div>
       </div>
     </div>
@@ -314,7 +326,7 @@ const GRADE_POINTS = {
 const LEVEL_ORDER = ['A','G','B'];
 const LEVEL_LABEL = {A:'H', G:'O', B:'F'};
 const LEVEL_NAME = {A:'Higher', G:'Ordinary', B:'Foundation'};
-const BLOCK_HEIGHT = 13;
+const BLOCK_HEIGHT = 48;
 const MATHS_CODE = '3';
 
 function colLetter(n) {
@@ -611,19 +623,22 @@ async function addChartsToWorkbook(buf, sheetChartSpecs) {
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
 }
 
-function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive, year }) {
+function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive, year, nameMap }) {
   const wb = XLSX.utils.book_new();
+  const nameOffset = nameMap ? 1 : 0;
   const nameToCode = {};
   for (const [code, name] of Object.entries(subjects)) nameToCode[name] = code;
   const subjectNames = Object.values(subjects);
   const candList = Object.keys(students).sort();
   const n = candList.length;
 
-  const msRows = [['Student number', ...subjectNames]];
-  for (const cand of candList) msRows.push([cand, ...subjectNames.map(name => students[cand][name] || '')]);
+  const msRows = [['Student number', ...(nameMap ? ['Name'] : []), ...subjectNames]];
+  for (const cand of candList) {
+    msRows.push([cand, ...(nameMap ? [nameMap[cand] || ''] : []), ...subjectNames.map(name => students[cand][name] || '')]);
+  }
   const ms = XLSX.utils.aoa_to_sheet(msRows);
 
-  const lutCol = subjectNames.length + 1 + 2;
+  const lutCol = subjectNames.length + 1 + 2 + nameOffset;
   const gradeEntries = Object.entries(GRADE_POINTS);
   XLSX.utils.sheet_add_aoa(ms, [['Grade', 'Points']], { origin: { r: 0, c: lutCol } });
   gradeEntries.forEach(([g, p], i) => XLSX.utils.sheet_add_aoa(ms, [[g, p]], { origin: { r: i + 1, c: lutCol } }));
@@ -634,7 +649,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
   subjectNames.forEach((name, i) => {
     const col = helperStartCol + i;
     XLSX.utils.sheet_add_aoa(ms, [[`${name} pts`]], { origin: { r: 0, c: col } });
-    const subjL = colLetter(i + 2);
+    const subjL = colLetter(i + 2 + nameOffset);
     for (let r = 0; r < n; r++) {
       const excelRow = r + 2;
       const f = `IFERROR(INDEX($${pointsL}$2:$${pointsL}$${lutLastRow},MATCH(${subjL}${excelRow},$${gradeL}$2:$${gradeL}$${lutLastRow},0)),0)`;
@@ -646,7 +661,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
 
   const mathsName = subjects[MATHS_CODE];
   const mathsIdx = subjectNames.indexOf(mathsName);
-  const mathsL = mathsIdx >= 0 ? colLetter(mathsIdx + 2) : null;
+  const mathsL = mathsIdx >= 0 ? colLetter(mathsIdx + 2 + nameOffset) : null;
 
   const totalCol = helperEndCol + 2, bonusCol = totalCol + 1;
   XLSX.utils.sheet_add_aoa(ms, [['CAO Points (best 6 + HL Maths bonus)', 'HL Maths Bonus']], { origin: { r: 0, c: totalCol } });
@@ -746,7 +761,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
       if (hasNational) natSeries.push({ nameRef: `'${sheetName}'!$D$${startRow}`, valRef: `'${sheetName}'!$D$${startRow+1}:$D$${startRow+8}` });
       chartSpecs[sheetName].push({
         type: 'bar', title: `${LEVEL_NAME[lvl]} Level: School vs National`, catRef, series: natSeries,
-        yAxisTitle: '%', anchorCol: 9, anchorRow: startRow - 3,
+        yAxisTitle: '%', anchorCol: 0, anchorRow: startRow + 12,
       });
 
       const availablePriorYears = priorYears.filter(py => archive[py] && archive[py][subj] && archive[py][subj][`${lvl}_pct`]);
@@ -758,7 +773,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
       if (trendSeries.length >= 2) {
         chartSpecs[sheetName].push({
           type: 'line', title: `${LEVEL_NAME[lvl]} Level: Distribution Over Years`, catRef, series: trendSeries,
-          yAxisTitle: '%', anchorCol: 18, anchorRow: startRow - 3,
+          yAxisTitle: '%', anchorCol: 0, anchorRow: startRow + 28,
         });
       }
     });
@@ -834,25 +849,48 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
     ['Ordinary Level entries', levelTotalsThisYear.G, totalEntries ? `${Math.round(levelTotalsThisYear.G/totalEntries*100)}% of all entries` : ''],
   ], { origin: { r: 2, c: 0 } });
 
-  // Top performing students
+  // CAO points distribution (graduated bands), with each band's actual students listed
   const caoResultsForExport = computeCaoPoints(subjects, students);
-  const topStudentsRanked = Object.entries(caoResultsForExport).sort((a,b)=>b[1].points-a[1].points).slice(0,10);
-  XLSX.utils.sheet_add_aoa(db, [['Rank','Student Number','CAO Points']], { origin: { r: 10, c: 0 } });
-  topStudentsRanked.forEach(([cand, res], i) => {
-    XLSX.utils.sheet_add_aoa(db, [[i+1, cand, res.points]], { origin: { r: 11+i, c: 0 } });
-  });
-
-  // CAO points distribution (graduated bands)
   const bandDefsX = [[600,999999,'600+'],[500,599,'500-599'],[400,499,'400-499'],[300,399,'300-399'],[200,299,'200-299'],[0,199,'0-199']];
   const pointsArrExport = Object.values(caoResultsForExport).map(r=>r.points);
-  XLSX.utils.sheet_add_aoa(db, [['Points Band','Students']], { origin: { r: 23, c: 0 } });
+  XLSX.utils.sheet_add_aoa(db, [['Points Band','Students']], { origin: { r: 10, c: 0 } });
   bandDefsX.forEach(([lo,hi,label], i) => {
     const cnt = pointsArrExport.filter(p=>p>=lo && p<=hi).length;
-    XLSX.utils.sheet_add_aoa(db, [[label, cnt]], { origin: { r: 24+i, c: 0 } });
+    XLSX.utils.sheet_add_aoa(db, [[label, cnt]], { origin: { r: 11+i, c: 0 } });
+  });
+
+  let r = 19;
+  XLSX.utils.sheet_add_aoa(db, [['Students by Points Band']], { origin: { r, c: 0 } });
+  r += 1;
+  bandDefsX.forEach(([lo, hi, label]) => {
+    const list = Object.entries(caoResultsForExport)
+      .filter(([, res]) => res.points >= lo && res.points <= hi)
+      .sort((a, b) => b[1].points - a[1].points);
+    XLSX.utils.sheet_add_aoa(db, [[label, `${list.length} student${list.length===1?'':'s'}`]], { origin: { r, c: 0 } });
+    r += 1;
+    if (list.length) {
+      const headerRow = nameMap ? ['Student Number', 'Name', 'CAO Points'] : ['Student Number', 'CAO Points'];
+      XLSX.utils.sheet_add_aoa(db, [headerRow], { origin: { r, c: 1 } });
+      r += 1;
+      list.forEach(([cand, res]) => {
+        const row = nameMap ? [cand, nameMap[cand] || '', res.points] : [cand, res.points];
+        XLSX.utils.sheet_add_aoa(db, [row], { origin: { r, c: 1 } });
+        r += 1;
+      });
+    }
+    r += 1;
   });
 
   db['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, db, 'Dashboard');
+
+  // Put Dashboard first so it's what opens by default
+  const dashIdx = wb.SheetNames.indexOf('Dashboard');
+  wb.SheetNames.splice(dashIdx, 1);
+  wb.SheetNames.unshift('Dashboard');
+  wb.Workbook = wb.Workbook || {};
+  wb.Workbook.Sheets = wb.Workbook.Sheets || [];
+  wb.Workbook.Views = [{ activeTab: 0 }];
 
   return { wb, chartSpecs };
 }
@@ -881,6 +919,32 @@ wireUpload('file-school', 'box-school', 'fname-school', (text) => { state.school
 wireUpload('file-national', 'box-national', 'fname-national', (text) => { state.nationalText = text; });
 wireUpload('file-archive', 'box-archive', 'fname-archive', (text) => {
   try { state.archive = JSON.parse(text); } catch (e) { alert('That file is not valid — please choose the archive file this app gave you.'); }
+});
+
+function parseNamesCsv(text) {
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+  const cols = parsed.meta.fields || [];
+  const idCol = cols.find(c => /candidate|exam|student.*number|number/i.test(c));
+  const nameCol = cols.find(c => /name/i.test(c));
+  if (!idCol || !nameCol) return null;
+  const map = {};
+  for (const row of parsed.data) {
+    const id = (row[idCol] || '').trim();
+    const name = (row[nameCol] || '').trim();
+    if (id) map[id] = name;
+  }
+  return Object.keys(map).length ? map : null;
+}
+
+wireUpload('file-names', 'box-names', 'fname-names', (text) => {
+  const map = parseNamesCsv(text);
+  if (!map) {
+    alert('Could not find a number column and a name column in that file. Expected two columns, e.g. "Candidate Number" and "Name".');
+    return;
+  }
+  state.nameMap = map;
+  document.getElementById('exportNamedBtn').style.display = 'inline-block';
+  document.getElementById('namedExportNote').style.display = 'block';
 });
 
 function checkReady() {
@@ -1068,26 +1132,51 @@ function render() {
     levelGrid.appendChild(div);
   });
 
-  // Top performing students
-  const topRanked = Object.entries(caoResults).sort((a,b) => b[1].points - a[1].points).slice(0, 10);
-  const topEl = document.getElementById('topStudents');
-  let topHtml = '<table><tr><th>Rank</th><th>Student No.</th><th>CAO Points</th></tr>';
-  topRanked.forEach(([cand, r], i) => {
-    topHtml += `<tr><td>${i+1}</td><td>${cand}</td><td>${r.points}</td></tr>`;
-  });
-  topHtml += '</table>';
-  topEl.innerHTML = topHtml;
-
-  // points distribution — graduated bands, 600+ as the top cutoff
+  // Points bands with click-to-reveal student numbers
   const bandDefs = [[600,9999],[500,599],[400,499],[300,399],[200,299],[0,199]];
   const bandLabels = ['600+','500-599','400-499','300-399','200-299','0-199'];
-  const bandCounts = bandDefs.map(([lo,hi]) => pointsArr.filter(p => p >= lo && p <= hi).length);
-  const pointsCtx = document.getElementById('pointsChart');
+  const bandStudents = bandDefs.map(([lo,hi]) =>
+    Object.entries(caoResults).filter(([,r]) => r.points >= lo && r.points <= hi)
+      .sort((a,b) => b[1].points - a[1].points));
+  const bandCounts = bandStudents.map(list => list.length);
+
+  const bandTableEl = document.getElementById('pointsBandTable');
+  const bandDetailEl = document.getElementById('pointsBandDetail');
+  let bandHtml = '<table><tr><th>Points Band</th><th>Students</th></tr>';
+  bandLabels.forEach((label, i) => {
+    bandHtml += `<tr class="clickable-row" data-band="${i}"><td>${label}</td><td>${bandCounts[i]}</td></tr>`;
+  });
+  bandHtml += '</table>';
+  bandTableEl.innerHTML = bandHtml;
+  bandDetailEl.innerHTML = '';
+  bandTableEl.querySelectorAll('tr.clickable-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const i = +row.dataset.band;
+      bandTableEl.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      const list = bandStudents[i];
+      if (!list.length) { bandDetailEl.innerHTML = `<p class="footer-note">No students in this band.</p>`; return; }
+      let html = `<h3 style="margin:12px 0 6px;font-size:13px;">${bandLabels[i]} (${list.length} student${list.length===1?'':'s'})</h3><table><tr><th>Student No.</th><th>CAO Points</th></tr>`;
+      list.forEach(([cand, r]) => { html += `<tr><td>${cand}</td><td>${r.points}</td></tr>`; });
+      html += '</table>';
+      bandDetailEl.innerHTML = html;
+    });
+  });
+
+
   if (state.pointsChart) state.pointsChart.destroy();
   state.pointsChart = new Chart(pointsCtx, {
     type: 'bar',
     data: { labels: bandLabels, datasets: [{ label: 'Students', data: bandCounts, backgroundColor: '#b8862f' }] },
-    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    options: {
+      plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } },
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const row = bandTableEl.querySelector(`tr[data-band="${elements[0].index}"]`);
+        if (row) row.click();
+      },
+      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+    }
   });
 
   // Subject selector — Core Subjects first, then the rest by uptake
@@ -1247,7 +1336,7 @@ function renderSubjectDetail(subj) {
       state.subjectCharts.push(new Chart(trendCtx, {
         type: 'line',
         data: { labels: gradeLabels, datasets },
-        options: { plugins: { title: { display: true, text: 'School Distribution Over Years', font: { size: 12 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } }
+        options: { maintainAspectRatio: false, layout: { padding: { top: 8, bottom: 8 } }, plugins: { title: { display: true, text: 'School Distribution Over Years', font: { size: 13 } }, legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } }
       }));
     }
 
@@ -1261,7 +1350,7 @@ function renderSubjectDetail(subj) {
       state.subjectCharts.push(new Chart(natCtx, {
         type: 'bar',
         data: { labels: gradeLabels, datasets: natDatasets },
-        options: { plugins: { title: { display: true, text: 'School vs National', font: { size: 12 } } }, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } }
+        options: { maintainAspectRatio: false, layout: { padding: { top: 8, bottom: 8 } }, plugins: { title: { display: true, text: 'School vs National', font: { size: 13 } }, legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } } }
       }));
     }
   });
@@ -1278,20 +1367,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // Export Excel
-document.getElementById('exportExcelBtn').addEventListener('click', async () => {
+async function runExport(btnId, filenameSuffix, nameMap) {
   if (!state.parsed) return;
-  const btn = document.getElementById('exportExcelBtn');
+  const btn = document.getElementById(btnId);
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Building workbook…';
   try {
     const { subjects, students, gradeCounts, subjectLevels, national, year } = state.parsed;
-    const { wb, chartSpecs } = buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive: state.archive || {}, year });
+    const { wb, chartSpecs } = buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive: state.archive || {}, year, nameMap });
     const arrayBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const blob = await addChartsToWorkbook(arrayBuf, chartSpecs);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `LC_Analysis_${year}.xlsx`;
+    a.download = `LC_Analysis_${year}${filenameSuffix}.xlsx`;
     a.click();
   } catch (e) {
     console.error(e);
@@ -1300,7 +1389,10 @@ document.getElementById('exportExcelBtn').addEventListener('click', async () => 
     btn.disabled = false;
     btn.textContent = originalText;
   }
-});
+}
+
+document.getElementById('exportExcelBtn').addEventListener('click', () => runExport('exportExcelBtn', '', null));
+document.getElementById('exportNamedBtn').addEventListener('click', () => runExport('exportNamedBtn', '_NAMED_CONFIDENTIAL', state.nameMap));
 
 // Download updated archive
 document.getElementById('downloadArchiveBtn').addEventListener('click', () => {
