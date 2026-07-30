@@ -224,7 +224,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div class="filename" id="fname-names"></div>
       </div>
     </div>
-    <p class="footer-note" id="namesFormatNote">Student Names file: two columns — a student/candidate/exam number column and a name column (any common header wording works, e.g. "Candidate Number, Name"). This never gets merged into the main analysis — it only powers a separate, clearly-labelled export for people who need real names.</p>
+
     <div style="margin-top:18px;" class="actions-row">
       <span>Exam year:</span>
       <input type="text" id="examYear" value="2025" style="width:70px;padding:8px;border:1px solid var(--line);border-radius:4px;">
@@ -250,6 +250,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="tabs">
       <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="subjects">Subjects</button>
+      <button class="tab-btn" data-tab="topperformers">Top Performers</button>
       <button class="tab-btn" data-tab="comparison">Subject Comparison</button>
     </div>
 
@@ -267,6 +268,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <select class="subject-select" id="subjectSelect"></select>
         <div id="subjectDetail"></div>
       </div>
+    </div>
+
+    <div class="tab-pane" id="tab-topperformers">
+      <p class="footer-note" style="margin-top:0;">Grade 1 and grade 2 candidates only, per subject and level.</p>
+      <div class="panel" id="topPerformersContent"></div>
     </div>
 
     <div class="tab-pane" id="tab-comparison">
@@ -832,6 +838,41 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
   sc['!cols'] = [{ wch: 26 }];
   XLSX.utils.book_append_sheet(wb, sc, 'Subject Comparison');
 
+  // ---------- Top Performers (grade 1-2 only, per subject/level) ----------
+  const tpData = computeTopPerformers(subjects, students);
+  const tp = XLSX.utils.aoa_to_sheet([['Top Performers — Grade 1 and Grade 2 candidates, per subject and level']]);
+  let tpRow = 2;
+  const tpOrdered = CORE_SUBJECTS.filter(s => activeSubjects.includes(s)).concat(activeSubjects.filter(s => !CORE_SUBJECTS.includes(s)));
+  tpOrdered.forEach(subj => {
+    const higher = tpData[subj].A, ordinary = tpData[subj].G;
+    if (!higher.length && !ordinary.length) return;
+    XLSX.utils.sheet_add_aoa(tp, [[subj]], { origin: { r: tpRow, c: 0 } });
+    tpRow += 1;
+    if (higher.length) {
+      const header = nameMap ? ['Higher Level', 'Name', 'Grade'] : ['Higher Level', 'Grade'];
+      XLSX.utils.sheet_add_aoa(tp, [header], { origin: { r: tpRow, c: 1 } });
+      tpRow += 1;
+      higher.forEach(([cand, g]) => {
+        const row = nameMap ? [cand, nameMap[cand] || '', `H${g}`] : [cand, `H${g}`];
+        XLSX.utils.sheet_add_aoa(tp, [row], { origin: { r: tpRow, c: 1 } });
+        tpRow += 1;
+      });
+    }
+    if (ordinary.length) {
+      const header = nameMap ? ['Ordinary Level', 'Name', 'Grade'] : ['Ordinary Level', 'Grade'];
+      XLSX.utils.sheet_add_aoa(tp, [header], { origin: { r: tpRow, c: 1 } });
+      tpRow += 1;
+      ordinary.forEach(([cand, g]) => {
+        const row = nameMap ? [cand, nameMap[cand] || '', `O${g}`] : [cand, `O${g}`];
+        XLSX.utils.sheet_add_aoa(tp, [row], { origin: { r: tpRow, c: 1 } });
+        tpRow += 1;
+      });
+    }
+    tpRow += 1;
+  });
+  tp['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 22 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, tp, 'Top Performers');
+
   // ---------- Dashboard ----------
   const db = XLSX.utils.aoa_to_sheet([['Leaving Certificate Results - School Summary']]);
   const levelTotalsThisYear = { A: 0, G: 0, B: 0 };
@@ -1076,6 +1117,47 @@ function buildNarrative(subj, lvl, counts, national, archive, code, year) {
   return `<div class="narrative">${parts.join('')}</div>`;
 }
 
+function renderTopPerformers(orderedSubjects, subjects, students) {
+  const data = computeTopPerformers(subjects, students);
+  const container = document.getElementById('topPerformersContent');
+  let html = '';
+  orderedSubjects.forEach(subj => {
+    const higher = data[subj].A, ordinary = data[subj].G;
+    if (!higher.length && !ordinary.length) return;
+    html += `<div style="margin-bottom:18px;"><h3 style="font-size:14px;margin:0 0 6px;color:var(--green-dim);">${subj}</h3>`;
+    if (higher.length) {
+      html += `<div style="margin-bottom:4px;"><strong>Higher:</strong> ${higher.map(([c,g])=>`${c} (H${g})`).join(', ')}</div>`;
+    }
+    if (ordinary.length) {
+      html += `<div><strong>Ordinary:</strong> ${ordinary.map(([c,g])=>`${c} (O${g})`).join(', ')}</div>`;
+    }
+    html += `</div>`;
+  });
+  container.innerHTML = html || '<p class="footer-note">No grade 1 or 2 results found.</p>';
+}
+
+function computeTopPerformers(subjects, students) {
+  // subjectName -> { A: [[cand, gradeIndex]...], G: [[cand, gradeIndex]...] }, grade 1-2 only
+  const subjectNames = Object.values(subjects);
+  const result = {};
+  for (const name of subjectNames) result[name] = { A: [], G: [] };
+  for (const [cand, grades] of Object.entries(students)) {
+    for (const name of subjectNames) {
+      const g = grades[name];
+      if (!g) continue;
+      const lvl = g[0], gi = parseInt(g.slice(1), 10);
+      if ((lvl === 'A' || lvl === 'G') && (gi === 1 || gi === 2)) {
+        result[name][lvl].push([cand, gi]);
+      }
+    }
+  }
+  for (const name of subjectNames) {
+    result[name].A.sort((a,b) => a[1]-b[1]);
+    result[name].G.sort((a,b) => a[1]-b[1]);
+  }
+  return result;
+}
+
 function subjectTotal(gradeCounts, s) {
   return Object.values(gradeCounts[s] || {}).reduce((a,b)=>a+b, 0);
 }
@@ -1165,6 +1247,7 @@ function render() {
 
 
   if (state.pointsChart) state.pointsChart.destroy();
+  const pointsCtx = document.getElementById('pointsChart');
   state.pointsChart = new Chart(pointsCtx, {
     type: 'bar',
     data: { labels: bandLabels, datasets: [{ label: 'Students', data: bandCounts, backgroundColor: '#b8862f' }] },
@@ -1190,6 +1273,8 @@ function render() {
   sel.onchange = () => renderSubjectDetail(sel.value);
   const first = core[0] || ranked[0];
   if (first) renderSubjectDetail(first);
+
+  renderTopPerformers(core.concat(other), subjects, students);
 
   // Comparison tables, grouped by uptake size
   const coreSubjects = CORE_SUBJECTS.filter(s => activeSubjects.includes(s));
