@@ -146,6 +146,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   tr.clickable-row { cursor: pointer; }
   tr.clickable-row:hover { background: #f1f7f3; }
   tr.clickable-row.active { background: #e2f3e8; }
+  .sortable-th { cursor: pointer; user-select: none; }
+  .sortable-th:hover { background: #e2ded0; }
   .narrative { font-size: 12.5px; color: var(--ink); background: #fafaf6; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin: 10px 0 4px; }
   .subject-charts { display: flex; flex-direction: column; gap: 28px; margin-top: 18px; }
   .subject-charts canvas { max-height: 380px; }
@@ -271,7 +273,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
 
     <div class="tab-pane" id="tab-topperformers">
-      <p class="footer-note" style="margin-top:0;">Grade 1 and grade 2 candidates only, per subject and level.</p>
+      <p class="footer-note" style="margin-top:0;">H1/H2 (Higher) and O1/O2 (Ordinary) candidates only, per subject.</p>
       <div class="panel" id="topPerformersContent"></div>
     </div>
 
@@ -499,7 +501,7 @@ function barChartXml({ title, catRef, series, yAxisTitle }) {
 ${sers}
 <c:gapWidth val="150"/><c:axId val="111111111"/><c:axId val="222222222"/></c:barChart>
 <c:catAx><c:axId val="111111111"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="b"/><c:delete val="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="222222222"/><c:lblOffset val="100"/></c:catAx>
-<c:valAx><c:axId val="222222222"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:delete val="0"/><c:majorGridlines/>${yAxisTitle ? `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>${escXml(yAxisTitle)}</a:t></a:r></a:p></c:rich></c:tx></c:title>` : ''}<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="111111111"/></c:valAx>
+<c:valAx><c:axId val="222222222"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:delete val="0"/><c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E3E1D9"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>${yAxisTitle ? `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>${escXml(yAxisTitle)}</a:t></a:r></a:p></c:rich></c:tx></c:title>` : ''}<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="111111111"/></c:valAx>
 </c:plotArea>
 <c:legend><c:legendPos val="r"/></c:legend>
 <c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/>
@@ -527,7 +529,7 @@ function lineChartXml({ title, catRef, series, yAxisTitle }) {
 ${sers}
 <c:marker val="1"/><c:axId val="111111112"/><c:axId val="222222223"/></c:lineChart>
 <c:catAx><c:axId val="111111112"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="b"/><c:delete val="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="222222223"/><c:lblOffset val="100"/></c:catAx>
-<c:valAx><c:axId val="222222223"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:delete val="0"/><c:majorGridlines/>${yAxisTitle ? `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>${escXml(yAxisTitle)}</a:t></a:r></a:p></c:rich></c:tx></c:title>` : ''}<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="111111112"/></c:valAx>
+<c:valAx><c:axId val="222222223"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:delete val="0"/><c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E3E1D9"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>${yAxisTitle ? `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>${escXml(yAxisTitle)}</a:t></a:r></a:p></c:rich></c:tx></c:title>` : ''}<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:crossAx val="111111112"/></c:valAx>
 </c:plotArea>
 <c:legend><c:legendPos val="r"/></c:legend>
 <c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/>
@@ -555,8 +557,7 @@ ${items}
 </xdr:wsDr>`;
 }
 
-async function addChartsToWorkbook(buf, sheetChartSpecs) {
-  const zip = await JSZip.loadAsync(buf);
+async function injectChartsIntoZip(zip, sheetChartSpecs) {
   const workbookXml = await zip.file('xl/workbook.xml').async('string');
   const workbookRelsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
   let contentTypesXml = await zip.file('[Content_Types].xml').async('string');
@@ -626,11 +627,106 @@ async function addChartsToWorkbook(buf, sheetChartSpecs) {
 
   contentTypesXml = contentTypesXml.replace('</Types>', newContentTypeOverrides.join('') + '</Types>');
   zip.file('[Content_Types].xml', contentTypesXml);
+  return zip;
+}
+
+const NAMED_STYLES = {
+  headerBold:      { boldWhite: true, fill: '1F4D3A' },
+  sectionTitle:    { bold: true, color: '1F4D3A', size: 13 },
+  narrativeShaded: { fill: 'F5F3EA' },
+  sampleHighlight: { bold: true, fill: 'FBE9C6' },
+  dashboardTitle:  { bold: true, color: 'FFFFFF', fill: '1F4D3A', size: 14 },
+};
+
+function expandCellRange(range) {
+  const m = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+  if (!m) return [range];
+  const colToNum = (c) => c.split('').reduce((a, ch) => a * 26 + (ch.charCodeAt(0) - 64), 0) - 1;
+  const colToRef = (col, row) => { let s = '', n = col; while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } return `${s}${row}`; };
+  const [, c1, r1, c2, r2] = m;
+  const refs = [];
+  for (let r = +r1; r <= +r2; r++) for (let c = colToNum(c1); c <= colToNum(c2); c++) refs.push(colToRef(c, r));
+  return refs;
+}
+
+async function applyStylesToZip(zip, sheetStyleSpecs) {
+  const workbookXml = await zip.file('xl/workbook.xml').async('string');
+  const workbookRelsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const sheetNameToRid = {};
+  let m;
+  const sheetRe = /<sheet[^>]*name="([^"]+)"[^>]*r:id="(rId\d+)"/g;
+  while ((m = sheetRe.exec(workbookXml))) sheetNameToRid[m[1]] = m[2];
+  const ridToTarget = {};
+  const relRe = /<Relationship[^>]*Id="(rId\d+)"[^>]*Target="([^"]+)"/g;
+  while ((m = relRe.exec(workbookRelsXml))) ridToTarget[m[1]] = m[2];
+
+  let stylesXml = await zip.file('xl/styles.xml').async('string');
+  const fontsMatch = stylesXml.match(/<fonts count="(\d+)">([\s\S]*?)<\/fonts>/);
+  const fillsMatch = stylesXml.match(/<fills count="(\d+)">([\s\S]*?)<\/fills>/);
+  const xfsMatch = stylesXml.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/);
+  let fontCount = parseInt(fontsMatch[1], 10), fontsInner = fontsMatch[2];
+  let fillCount = parseInt(fillsMatch[1], 10), fillsInner = fillsMatch[2];
+  let xfCount = parseInt(xfsMatch[1], 10), xfsInner = xfsMatch[2];
+
+  const styleNameToXfIdx = {};
+  for (const [name, spec] of Object.entries(NAMED_STYLES)) {
+    const fontParts = [`<sz val="${spec.size || 11}"/>`];
+    if (spec.boldWhite || spec.bold) fontParts.push('<b/>');
+    const fontColor = spec.boldWhite ? 'FFFFFF' : (spec.color || null);
+    if (fontColor) fontParts.push(`<color rgb="FF${fontColor}"/>`);
+    fontParts.push('<name val="Calibri"/>');
+    fontsInner += `<font>${fontParts.join('')}</font>`;
+    const fontIdx = fontCount++;
+    let fillIdx = 0;
+    if (spec.fill) {
+      fillsInner += `<fill><patternFill patternType="solid"><fgColor rgb="FF${spec.fill}"/><bgColor indexed="64"/></patternFill></fill>`;
+      fillIdx = fillCount++;
+    }
+    xfsInner += `<xf numFmtId="0" fontId="${fontIdx}" fillId="${fillIdx}" borderId="0" xfId="0" applyFont="1"${spec.fill ? ' applyFill="1"' : ''}/>`;
+    styleNameToXfIdx[name] = xfCount++;
+  }
+  stylesXml = stylesXml.replace(/<fonts count="\d+">[\s\S]*?<\/fonts>/, `<fonts count="${fontCount}">${fontsInner}</fonts>`);
+  stylesXml = stylesXml.replace(/<fills count="\d+">[\s\S]*?<\/fills>/, `<fills count="${fillCount}">${fillsInner}</fills>`);
+  stylesXml = stylesXml.replace(/<cellXfs count="\d+">[\s\S]*?<\/cellXfs>/, `<cellXfs count="${xfCount}">${xfsInner}</cellXfs>`);
+  zip.file('xl/styles.xml', stylesXml);
+
+  for (const [sheetName, specs] of Object.entries(sheetStyleSpecs)) {
+    if (!specs || !specs.length) continue;
+    const rid = sheetNameToRid[sheetName];
+    if (!rid) continue;
+    const target = ridToTarget[rid];
+    const sheetPath = 'xl/' + target.replace(/^\/?xl\//, '');
+    let sheetXml = await zip.file(sheetPath).async('string');
+    for (const { range, style } of specs) {
+      const idx = styleNameToXfIdx[style];
+      if (idx === undefined) continue;
+      for (const ref of expandCellRange(range)) {
+        const re = new RegExp(`<c r="${ref}"([^>]*?)(/?)>`, '');
+        sheetXml = sheetXml.replace(re, (whole, attrs, selfClose) => {
+          let newAttrs = /\ss="\d+"/.test(attrs) ? attrs.replace(/\ss="\d+"/, ` s="${idx}"`) : ` s="${idx}"` + attrs;
+          return `<c r="${ref}"${newAttrs}${selfClose}>`;
+        });
+      }
+    }
+    zip.file(sheetPath, sheetXml);
+  }
+  return zip;
+}
+
+async function finalizeWorkbook(arrayBuf, chartSpecs, styleSpecs) {
+  let zip = await JSZip.loadAsync(arrayBuf);
+  zip = await injectChartsIntoZip(zip, chartSpecs);
+  zip = await applyStylesToZip(zip, styleSpecs);
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
 }
 
 function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive, year, nameMap }) {
   const wb = XLSX.utils.book_new();
+  const styleSpecs = {};
+  const addStyle = (sheetName, range, style) => {
+    styleSpecs[sheetName] = styleSpecs[sheetName] || [];
+    styleSpecs[sheetName].push({ range, style });
+  };
   const nameOffset = nameMap ? 1 : 0;
   const nameToCode = {};
   for (const [code, name] of Object.entries(subjects)) nameToCode[name] = code;
@@ -696,6 +792,8 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
   XLSX.utils.sheet_add_aoa(ms, [['Total students', { t:'n', f:`COUNTA(A2:A${1+n})` }]], { origin: { r: bands.length+3, c: statsCol } });
   XLSX.utils.sheet_add_aoa(ms, [['Average CAO points', { t:'n', f:`ROUND(AVERAGE(${totalL}2:${totalL}${1+n}),1)` }]], { origin: { r: bands.length+4, c: statsCol } });
   ms['!cols'] = msRows[0].map(() => ({ wch: 14 }));
+  addStyle('Mastersheet', `A1:${colLetter(statsCol + 3)}1`, 'headerBold');
+  addStyle('Mastersheet', `${colLetter(statsCol + 1)}1:${colLetter(statsCol + 3)}1`, 'headerBold');
   XLSX.utils.book_append_sheet(wb, ms, 'Mastersheet');
 
   const activeSubjects = subjectNames.filter(s => Object.values(gradeCounts[s] || {}).reduce((a,b)=>a+b,0) > 0);
@@ -734,11 +832,14 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
     const ws = XLSX.utils.aoa_to_sheet([[subj]]);
     const blockRows = {};
     chartSpecs[sheetName] = [];
+    addStyle(sheetName, 'A1:A1', 'sectionTitle');
     levels.forEach((lvl, bi) => {
       const startRow = 3 + BLOCK_HEIGHT * bi;
       blockRows[lvl] = startRow;
       XLSX.utils.sheet_add_aoa(ws, [[`${LEVEL_NAME[lvl]} Level`]], { origin: { r: startRow - 2, c: 0 } });
       XLSX.utils.sheet_add_aoa(ws, [['Grade','Count', year, 'National average', ...priorYears]], { origin: { r: startRow - 1, c: 0 } });
+      addStyle(sheetName, `A${startRow-1}:A${startRow-1}`, 'sectionTitle');
+      addStyle(sheetName, `A${startRow}:G${startRow}`, 'headerBold');
       for (let gi = 1; gi <= 8; gi++) {
         const r = startRow + gi - 1, excelR = r + 1, gcode = `${lvl}${gi}`, sampleExcelRow = startRow + 10;
         XLSX.utils.sheet_add_aoa(ws, [[`${LEVEL_LABEL[lvl]}${gi}`, counts[gcode] || 0]], { origin: { r, c: 0 } });
@@ -757,8 +858,12 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
         const nVal = (archive[py] && archive[py][subj] && archive[py][subj][`${lvl}_n`]) || 0;
         XLSX.utils.sheet_add_aoa(ws, [[nVal]], { origin: { r: sr, c: 4 + pi } });
       });
+      addStyle(sheetName, `A${sr+1}:G${sr+1}`, 'sampleHighlight');
       const narrative = buildNarrativeText(subj, lvl, counts, national, archive, code, year);
-      if (narrative) XLSX.utils.sheet_add_aoa(ws, [['Analysis:', narrative]], { origin: { r: startRow - 2, c: 8 } });
+      if (narrative) {
+        XLSX.utils.sheet_add_aoa(ws, [['Analysis:', narrative]], { origin: { r: startRow - 2, c: 8 } });
+        addStyle(sheetName, `I${startRow-1}:J${startRow-1}`, 'narrativeShaded');
+      }
 
       // --- chart specs for this level block ---
       const catRef = `'${sheetName}'!$A$${startRow+1}:$A$${startRow+8}`;
@@ -807,9 +912,12 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
   }
 
   const sc = XLSX.utils.aoa_to_sheet([['Subject Comparison — grouped by uptake, so small and large subjects are not compared on the same footing. Cell format: count (% of that level).']]);
+  addStyle('Subject Comparison', 'A1:A1', 'dashboardTitle');
   function matrix(startRow, level, title, subs) {
     XLSX.utils.sheet_add_aoa(sc, [[title]], { origin: { r: startRow, c: 0 } });
+    addStyle('Subject Comparison', `A${startRow+1}:A${startRow+1}`, 'sectionTitle');
     XLSX.utils.sheet_add_aoa(sc, [['Subject', ...Array.from({length:8},(_,i)=>`${LEVEL_LABEL[level]}${i+1}`), 'Sample Size']], { origin: { r: startRow+1, c: 0 } });
+    addStyle('Subject Comparison', `A${startRow+2}:J${startRow+2}`, 'headerBold');
     let r = startRow + 2;
     const filtered = subs.filter(s => subjectLevels[s] && subjectLevels[s].has(level));
     for (const s of filtered) {
@@ -840,17 +948,20 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
 
   // ---------- Top Performers (grade 1-2 only, per subject/level) ----------
   const tpData = computeTopPerformers(subjects, students);
-  const tp = XLSX.utils.aoa_to_sheet([['Top Performers — Grade 1 and Grade 2 candidates, per subject and level']]);
+  const tp = XLSX.utils.aoa_to_sheet([['Top Performers — H1/H2 (Higher) and O1/O2 (Ordinary) candidates, per subject']]);
+  addStyle('Top Performers', 'A1:A1', 'dashboardTitle');
   let tpRow = 2;
   const tpOrdered = CORE_SUBJECTS.filter(s => activeSubjects.includes(s)).concat(activeSubjects.filter(s => !CORE_SUBJECTS.includes(s)));
   tpOrdered.forEach(subj => {
     const higher = tpData[subj].A, ordinary = tpData[subj].G;
     if (!higher.length && !ordinary.length) return;
     XLSX.utils.sheet_add_aoa(tp, [[subj]], { origin: { r: tpRow, c: 0 } });
+    addStyle('Top Performers', `A${tpRow+1}:A${tpRow+1}`, 'sectionTitle');
     tpRow += 1;
     if (higher.length) {
       const header = nameMap ? ['Higher Level', 'Name', 'Grade'] : ['Higher Level', 'Grade'];
       XLSX.utils.sheet_add_aoa(tp, [header], { origin: { r: tpRow, c: 1 } });
+      addStyle('Top Performers', `B${tpRow+1}:D${tpRow+1}`, 'headerBold');
       tpRow += 1;
       higher.forEach(([cand, g]) => {
         const row = nameMap ? [cand, nameMap[cand] || '', `H${g}`] : [cand, `H${g}`];
@@ -861,6 +972,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
     if (ordinary.length) {
       const header = nameMap ? ['Ordinary Level', 'Name', 'Grade'] : ['Ordinary Level', 'Grade'];
       XLSX.utils.sheet_add_aoa(tp, [header], { origin: { r: tpRow, c: 1 } });
+      addStyle('Top Performers', `B${tpRow+1}:D${tpRow+1}`, 'headerBold');
       tpRow += 1;
       ordinary.forEach(([cand, g]) => {
         const row = nameMap ? [cand, nameMap[cand] || '', `O${g}`] : [cand, `O${g}`];
@@ -875,6 +987,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
 
   // ---------- Dashboard ----------
   const db = XLSX.utils.aoa_to_sheet([['Leaving Certificate Results - School Summary']]);
+  addStyle('Dashboard', 'A1:A1', 'dashboardTitle');
   const levelTotalsThisYear = { A: 0, G: 0, B: 0 };
   for (const s of activeSubjects) {
     const counts = gradeCounts[s] || {};
@@ -889,19 +1002,25 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
     ['Higher Level entries', levelTotalsThisYear.A, totalEntries ? `${Math.round(levelTotalsThisYear.A/totalEntries*100)}% of all entries` : ''],
     ['Ordinary Level entries', levelTotalsThisYear.G, totalEntries ? `${Math.round(levelTotalsThisYear.G/totalEntries*100)}% of all entries` : ''],
   ], { origin: { r: 2, c: 0 } });
+  addStyle('Dashboard', 'A3:A8', 'headerBold');
 
   // CAO points distribution (graduated bands), with each band's actual students listed
   const caoResultsForExport = computeCaoPoints(subjects, students);
   const bandDefsX = [[600,999999,'600+'],[500,599,'500-599'],[400,499,'400-499'],[300,399,'300-399'],[200,299,'200-299'],[0,199,'0-199']];
   const pointsArrExport = Object.values(caoResultsForExport).map(r=>r.points);
-  XLSX.utils.sheet_add_aoa(db, [['Points Band','Students']], { origin: { r: 10, c: 0 } });
+  XLSX.utils.sheet_add_aoa(db, [['Points Band','Students','Cumulative %']], { origin: { r: 10, c: 0 } });
+  addStyle('Dashboard', 'A11:C11', 'headerBold');
+  let cumCount = 0;
   bandDefsX.forEach(([lo,hi,label], i) => {
     const cnt = pointsArrExport.filter(p=>p>=lo && p<=hi).length;
-    XLSX.utils.sheet_add_aoa(db, [[label, cnt]], { origin: { r: 11+i, c: 0 } });
+    cumCount += cnt;
+    const cumPct = pointsArrExport.length ? Math.round((cumCount/pointsArrExport.length)*1000)/10 : 0;
+    XLSX.utils.sheet_add_aoa(db, [[label, cnt, cumPct]], { origin: { r: 11+i, c: 0 } });
   });
 
   let r = 19;
   XLSX.utils.sheet_add_aoa(db, [['Students by Points Band']], { origin: { r, c: 0 } });
+  addStyle('Dashboard', `A${r+1}:A${r+1}`, 'sectionTitle');
   r += 1;
   bandDefsX.forEach(([lo, hi, label]) => {
     const list = Object.entries(caoResultsForExport)
@@ -912,6 +1031,7 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
     if (list.length) {
       const headerRow = nameMap ? ['Student Number', 'Name', 'CAO Points'] : ['Student Number', 'CAO Points'];
       XLSX.utils.sheet_add_aoa(db, [headerRow], { origin: { r, c: 1 } });
+      addStyle('Dashboard', `B${r+1}:D${r+1}`, 'headerBold');
       r += 1;
       list.forEach(([cand, res]) => {
         const row = nameMap ? [cand, nameMap[cand] || '', res.points] : [cand, res.points];
@@ -925,15 +1045,15 @@ function buildWorkbook({ subjects, students, gradeCounts, subjectLevels, nationa
   db['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, db, 'Dashboard');
 
-  // Put Dashboard first so it's what opens by default
-  const dashIdx = wb.SheetNames.indexOf('Dashboard');
-  wb.SheetNames.splice(dashIdx, 1);
-  wb.SheetNames.unshift('Dashboard');
+  // Non-subject sheets first (Dashboard, Mastersheet, Subject Comparison, Top Performers), then every subject
+  const summarySheetOrder = ['Dashboard', 'Mastersheet', 'Subject Comparison', 'Top Performers'];
+  const subjectSheetNames = wb.SheetNames.filter(n => !summarySheetOrder.includes(n));
+  wb.SheetNames = summarySheetOrder.filter(n => wb.SheetNames.includes(n)).concat(subjectSheetNames);
   wb.Workbook = wb.Workbook || {};
   wb.Workbook.Sheets = wb.Workbook.Sheets || [];
   wb.Workbook.Views = [{ activeTab: 0 }];
 
-  return { wb, chartSpecs };
+  return { wb, chartSpecs, styleSpecs };
 }
 
 /* =========================================================================
@@ -1119,6 +1239,8 @@ function buildNarrative(subj, lvl, counts, national, archive, code, year) {
 
 function renderTopPerformers(orderedSubjects, subjects, students) {
   const data = computeTopPerformers(subjects, students);
+  const nameMap = state.nameMap;
+  const label = (cand) => nameMap && nameMap[cand] ? `${nameMap[cand]} (${cand})` : cand;
   const container = document.getElementById('topPerformersContent');
   let html = '';
   orderedSubjects.forEach(subj => {
@@ -1126,14 +1248,14 @@ function renderTopPerformers(orderedSubjects, subjects, students) {
     if (!higher.length && !ordinary.length) return;
     html += `<div style="margin-bottom:18px;"><h3 style="font-size:14px;margin:0 0 6px;color:var(--green-dim);">${subj}</h3>`;
     if (higher.length) {
-      html += `<div style="margin-bottom:4px;"><strong>Higher:</strong> ${higher.map(([c,g])=>`${c} (H${g})`).join(', ')}</div>`;
+      html += `<div style="margin-bottom:4px;"><strong>Higher:</strong> ${higher.map(([c,g])=>`${label(c)} (H${g})`).join(', ')}</div>`;
     }
     if (ordinary.length) {
-      html += `<div><strong>Ordinary:</strong> ${ordinary.map(([c,g])=>`${c} (O${g})`).join(', ')}</div>`;
+      html += `<div><strong>Ordinary:</strong> ${ordinary.map(([c,g])=>`${label(c)} (O${g})`).join(', ')}</div>`;
     }
     html += `</div>`;
   });
-  container.innerHTML = html || '<p class="footer-note">No grade 1 or 2 results found.</p>';
+  container.innerHTML = html || '<p class="footer-note">No H1/H2 or O1/O2 results found.</p>';
 }
 
 function computeTopPerformers(subjects, students) {
@@ -1221,12 +1343,15 @@ function render() {
     Object.entries(caoResults).filter(([,r]) => r.points >= lo && r.points <= hi)
       .sort((a,b) => b[1].points - a[1].points));
   const bandCounts = bandStudents.map(list => list.length);
+  const totalForBands = bandCounts.reduce((a,b)=>a+b, 0);
+  let cumulative = 0;
+  const bandCumPct = bandCounts.map(c => { cumulative += c; return totalForBands ? Math.round((cumulative/totalForBands)*1000)/10 : 0; });
 
   const bandTableEl = document.getElementById('pointsBandTable');
   const bandDetailEl = document.getElementById('pointsBandDetail');
-  let bandHtml = '<table><tr><th>Points Band</th><th>Students</th></tr>';
+  let bandHtml = '<table><tr><th>Points Band</th><th>Students</th><th>Cumulative %</th></tr>';
   bandLabels.forEach((label, i) => {
-    bandHtml += `<tr class="clickable-row" data-band="${i}"><td>${label}</td><td>${bandCounts[i]}</td></tr>`;
+    bandHtml += `<tr class="clickable-row" data-band="${i}"><td>${label}</td><td>${bandCounts[i]}</td><td>${bandCumPct[i]}%</td></tr>`;
   });
   bandHtml += '</table>';
   bandTableEl.innerHTML = bandHtml;
@@ -1238,8 +1363,10 @@ function render() {
       row.classList.add('active');
       const list = bandStudents[i];
       if (!list.length) { bandDetailEl.innerHTML = `<p class="footer-note">No students in this band.</p>`; return; }
-      let html = `<h3 style="margin:12px 0 6px;font-size:13px;">${bandLabels[i]} (${list.length} student${list.length===1?'':'s'})</h3><table><tr><th>Student No.</th><th>CAO Points</th></tr>`;
-      list.forEach(([cand, r]) => { html += `<tr><td>${cand}</td><td>${r.points}</td></tr>`; });
+      const nameMap = state.nameMap;
+      const hasNames = !!nameMap;
+      let html = `<h3 style="margin:12px 0 6px;font-size:13px;">${bandLabels[i]} (${list.length} student${list.length===1?'':'s'})</h3><table><tr><th>Student No.</th>${hasNames?'<th>Name</th>':''}<th>CAO Points</th></tr>`;
+      list.forEach(([cand, r]) => { html += `<tr><td>${cand}</td>${hasNames?`<td>${nameMap[cand]||''}</td>`:''}<td>${r.points}</td></tr>`; });
       html += '</table>';
       bandDetailEl.innerHTML = html;
     });
@@ -1321,8 +1448,23 @@ function renderHeatGroup(containerId, level, subs, gradeCounts, subjectLevels) {
   const columnValues = {}; // gradeIndex(1-3) -> array of values across subs
   [1,2,3].forEach(gi => { columnValues[gi] = filtered.map(s => pctTable[s][gi-1]); });
 
-  let html = '<table><tr><th>Subject</th>' + Array.from({length:8},(_,i)=>`<th>${LEVEL_LABEL[level]}${i+1}</th>`).join('') + '<th>N</th></tr>';
-  for (const s of filtered) {
+  state.heatSort = state.heatSort || {};
+  const sortState = state.heatSort[containerId];
+  let ordered = filtered;
+  if (sortState) {
+    ordered = [...filtered].sort((a, b) => (pctTable[b][sortState.gi-1] - pctTable[a][sortState.gi-1]) * (sortState.dir === 'asc' ? -1 : 1));
+  }
+
+  const headerCell = (giOrNull, label) => {
+    if (giOrNull === null) return `<th>${label}</th>`;
+    const active = sortState && sortState.gi === giOrNull;
+    const arrow = active ? (sortState.dir === 'desc' ? ' ▼' : ' ▲') : '';
+    return `<th class="sortable-th" data-gi="${giOrNull}" title="Click to rank subjects by this grade">${label}${arrow}</th>`;
+  };
+  let html = '<table><tr>' + headerCell(null, 'Subject') +
+    Array.from({length:8},(_,i)=>headerCell(i+1, `${LEVEL_LABEL[level]}${i+1}`)).join('') +
+    headerCell(null, 'N') + '</tr>';
+  for (const s of ordered) {
     const counts = gradeCounts[s] || {};
     const total = Array.from({length:8},(_,i)=>counts[`${level}${i+1}`]||0).reduce((a,b)=>a+b,0);
     html += `<tr><td>${s}</td>`;
@@ -1336,6 +1478,15 @@ function renderHeatGroup(containerId, level, subs, gradeCounts, subjectLevels) {
   }
   html += '</table>';
   container.innerHTML = html;
+  container.querySelectorAll('.sortable-th').forEach(th => {
+    th.addEventListener('click', () => {
+      const gi = +th.dataset.gi;
+      const cur = state.heatSort[containerId];
+      const nextDir = (cur && cur.gi === gi && cur.dir === 'desc') ? 'asc' : 'desc';
+      state.heatSort[containerId] = { gi, dir: nextDir };
+      renderHeatGroup(containerId, level, subs, gradeCounts, subjectLevels);
+    });
+  });
 }
 
 function destroySubjectCharts() {
@@ -1460,9 +1611,9 @@ async function runExport(btnId, filenameSuffix, nameMap) {
   btn.innerHTML = '<span class="spinner"></span>Building workbook…';
   try {
     const { subjects, students, gradeCounts, subjectLevels, national, year } = state.parsed;
-    const { wb, chartSpecs } = buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive: state.archive || {}, year, nameMap });
+    const { wb, chartSpecs, styleSpecs } = buildWorkbook({ subjects, students, gradeCounts, subjectLevels, national, archive: state.archive || {}, year, nameMap });
     const arrayBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const blob = await addChartsToWorkbook(arrayBuf, chartSpecs);
+    const blob = await finalizeWorkbook(arrayBuf, chartSpecs, styleSpecs);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `LC_Analysis_${year}${filenameSuffix}.xlsx`;
